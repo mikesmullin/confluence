@@ -1,0 +1,27 @@
+# Confluence Personal Access Tokens
+# ==================================
+# Authentication tokens for each Confluence host.
+#
+# SETUP:
+#   1. Copy this file to .tokens.yaml
+#   2. Generate a PAT for each host you need
+#   3. Replace YOUR_PAT_TOKEN_HERE with your actual tokens
+#
+# SECURITY:
+#   - .tokens.yaml is gitignored - NEVER commit it
+#   - PATs should have minimum required permissions
+#   - Rotate tokens periodically
+#
+# GENERATING A PAT:
+#   1. Log into your Confluence instance
+#   2. Go to Profile > Settings > Personal Access Tokens
+#   3. Click "Create token"
+#   4. Name it (e.g., "confluence-cli")
+#   5. Copy the token immediately (shown only once)
+
+hosts:
+  delta:
+    token: YOUR_PAT_TOKEN_HERE
+
+  gamma:
+    token: YOUR_PAT_TOKEN_HERE

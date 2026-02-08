@@ -1,0 +1,28 @@
+# Confluence CLI Configuration
+# =============================
+# Defines Confluence hosts for the CLI.
+# Copy this file to config.yaml and customize for your environment.
+
+# Default host used when --host is not specified
+default_host: delta
+
+# Host definitions
+# Each host represents a Confluence instance
+hosts:
+
+  # Primary Confluence instance
+  delta:
+    # Base URL of the Confluence instance (no trailing slash)
+    url: https://confluence.company.com
+    # REST API path (optional, defaults to /rest/api)
+    api: /rest/api
+    # Domain patterns that route to this host (for URL auto-detection)
+    domains:
+      - confluence.company.com
+
+  # Secondary Confluence instance
+  gamma:
+    url: https://confluence2.company.com
+    api: /rest/api
+    domains:
+      - confluence2.company.com

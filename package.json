@@ -1,0 +1,22 @@
+{
+  "name": "confluence-cli",
+  "version": "0.1.0",
+  "description": "Confluence CLI with multi-host support",
+  "author": "Mike Smullin <mike@smullindesign.com>",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "confluence": "./src/cli.mjs"
+  },
+  "scripts": {
+    "start": "bun src/cli.mjs",
+    "link": "bun link"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "bun": ">=1.0.0"
+  }
+}
