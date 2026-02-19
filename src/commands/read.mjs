@@ -14,7 +14,8 @@ USAGE:
 
 OPTIONS:
   --host <name>       Confluence host (default: auto-detect from URL or config)
-  --html              Output raw HTML storage format
+  --html              Output raw HTML storage format (default)
+  --text              Output text-only format
   --space <key>       Space key (when using title instead of URL)
   --title <name>      Page title (alternative to URL/ID)
   -h, --help          Show this help message
@@ -32,6 +33,7 @@ export async function runRead(args) {
     options: {
       host: { type: 'string', short: 'H' },
       html: { type: 'boolean' },
+      text: { type: 'boolean' },
       space: { type: 'string', short: 's' },
       title: { type: 'string', short: 't' },
       help: { type: 'boolean', short: 'h' },
@@ -101,10 +103,10 @@ export async function runRead(args) {
 
   const content = page.body?.storage?.value || '';
 
-  if (values.html) {
-    console.log(content);
-  } else {
+  if (values.text) {
     console.log(stripHtmlTags(content));
+  } else {
+    console.log(content);
   }
 }
 

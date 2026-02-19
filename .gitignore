@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# User config
+config.yaml
+
 # Tokens (NEVER commit)
 .tokens.yaml
 
