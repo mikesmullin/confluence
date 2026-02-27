@@ -111,7 +111,7 @@ function printTable(results) {
     const id = (content.id || '').toString().padEnd(12);
     const space = extractSpace(result).padEnd(11);
     const type = (content.type || '').padEnd(8);
-    const title = (content.title || '').slice(0, 45);
+    const title = (content.title || '').slice(0, 90);
     console.log(`${id} ${space} ${type} ${title}`);
   }
 }
