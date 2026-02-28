@@ -5,19 +5,32 @@
 import { parseArgs } from 'util';
 import { createInterface } from 'readline';
 import { readFileSync } from 'fs';
-import { getPageById, getPageByTitle, parsePageUrl, updatePage } from '../lib/api.mjs';
+import {
+  createPage,
+  getPageById,
+  getPageByTitle,
+  getPageMetadataById,
+  getPageMetadataByTitle,
+  getPageUrls,
+  parsePageUrl,
+  resolveShortUrl,
+  updatePage,
+} from '../lib/api.mjs';
 import { getHostConfig, getHostByUrl, getDefaultHost } from '../lib/config.mjs';
 
 const HELP = `
-confluence write - Update Confluence page content
+confluence write - Update or create Confluence page content
 
 USAGE:
   confluence write <url|id> [OPTIONS]
+  confluence write --create --parent <url|id> --title <name> [OPTIONS]
 
 OPTIONS:
   --host <name>       Confluence host (default: auto-detect from URL or config)
   --file <path>       Read new content from file (HTML storage format)
   --stdin             Read new content from stdin
+  --create            Create a new page instead of updating an existing page
+  --parent <url|id>   Parent page for create mode
   --space <key>       Space key (when using title)
   --title <name>      Page title (alternative to URL/ID)
   --yes               Skip confirmation prompt
@@ -27,6 +40,7 @@ EXAMPLES:
   confluence write 12345 --file content.html
   cat content.html | confluence write 12345 --stdin
   confluence write --space SRE --title "Runbook" --file runbook.html --yes
+  confluence write --create --parent 12345 --title "New Runbook" --file content.html
 `;
 
 export async function runWrite(args) {
@@ -36,6 +50,8 @@ export async function runWrite(args) {
       host: { type: 'string', short: 'H' },
       file: { type: 'string', short: 'f' },
       stdin: { type: 'boolean' },
+      create: { type: 'boolean' },
+      parent: { type: 'string', short: 'p' },
       space: { type: 'string', short: 's' },
       title: { type: 'string', short: 't' },
       yes: { type: 'boolean', short: 'y' },
@@ -61,17 +77,22 @@ export async function runWrite(args) {
     process.exit(1);
   }
 
+  if (values.create) {
+    await runCreate(values, positionals, newContent);
+    return;
+  }
+
   let host;
   let page;
 
-  // Mode 1: Space + Title
+  // Update mode 1: Space + Title
   if (values.space && values.title) {
     const hostName = values.host || getDefaultHost();
     host = getHostConfig(hostName);
     console.error(`Reading page: ${values.space}/${values.title} from ${host.name}`);
     page = await getPageByTitle(host, values.space, values.title);
   }
-  // Mode 2: URL or ID
+  // Update mode 2: URL or ID
   else if (positionals.length > 0) {
     const input = positionals[0];
 
@@ -131,6 +152,95 @@ export async function runWrite(args) {
   console.error('Updating page...');
   await updatePage(host, pageId, pageTitle, spaceKey, newContent, currentVersion);
   console.error('Done.');
+}
+
+async function runCreate(values, positionals, newContent) {
+  const parentRef = values.parent || positionals[0];
+  const newTitle = values.title;
+
+  if (!parentRef) {
+    throw new Error('Create mode requires --parent <url|id> (or positional parent ID/URL).');
+  }
+
+  if (!newTitle) {
+    throw new Error('Create mode requires --title <name>.');
+  }
+
+  const { host, page: parentPage } = await resolvePageRef(parentRef, values.host, true);
+  const spaceKey = values.space || parentPage.space?.key;
+
+  if (!spaceKey) {
+    throw new Error('Could not determine space key for new page. Pass --space explicitly.');
+  }
+
+  console.error(`\nCreating page: ${newTitle}`);
+  console.error(`Space: ${spaceKey}`);
+  console.error(`Parent: ${parentPage.title} (${parentPage.id})`);
+
+  console.error('\n--- NEW CONTENT (text preview) ---');
+  console.error(stripHtmlTags(newContent).slice(0, 500));
+  console.error('');
+
+  if (!values.yes) {
+    const confirmed = await confirm('Create this page?');
+    if (!confirmed) {
+      console.error('Aborted.');
+      process.exit(0);
+    }
+  }
+
+  console.error('Creating page...');
+  const created = await createPage(host, newTitle, spaceKey, newContent, parentPage.id);
+  const urls = getPageUrls(host, created);
+
+  console.error('Done.');
+  console.log(`ID: ${created.id}`);
+  console.log(`Title: ${created.title}`);
+  console.log(`Permalink: ${urls.permalink}`);
+  console.log(`GUID URL: ${urls.guid}`);
+}
+
+async function resolvePageRef(ref, hostNameOverride, metadataOnly = false) {
+  let host;
+  let page;
+
+  if (ref.startsWith('http')) {
+    host = getHostByUrl(ref);
+    const parsed = parsePageUrl(ref);
+
+    if (parsed.type === 'short') {
+      const resolved = await resolveShortUrl(ref, host);
+      const reparsed = parsePageUrl(resolved);
+      if (reparsed.type === 'id') {
+        page = metadataOnly
+          ? await getPageMetadataById(host, reparsed.pageId)
+          : await getPageById(host, reparsed.pageId);
+      } else if (reparsed.type === 'title') {
+        page = metadataOnly
+          ? await getPageMetadataByTitle(host, reparsed.spaceKey, reparsed.title)
+          : await getPageByTitle(host, reparsed.spaceKey, reparsed.title);
+      }
+      return { host, page };
+    }
+
+    if (parsed.type === 'id') {
+      page = metadataOnly
+        ? await getPageMetadataById(host, parsed.pageId)
+        : await getPageById(host, parsed.pageId);
+    } else if (parsed.type === 'title') {
+      page = metadataOnly
+        ? await getPageMetadataByTitle(host, parsed.spaceKey, parsed.title)
+        : await getPageByTitle(host, parsed.spaceKey, parsed.title);
+    }
+
+    return { host, page };
+  }
+
+  const hostName = hostNameOverride || getDefaultHost();
+  host = getHostConfig(hostName);
+  page = metadataOnly ? await getPageMetadataById(host, ref) : await getPageById(host, ref);
+
+  return { host, page };
 }
 
 async function readStdin() {

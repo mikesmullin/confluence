@@ -13,6 +13,8 @@ import { runWrite } from './commands/write.mjs';
 import { runUser } from './commands/user.mjs';
 import { runVisit } from './commands/visit.mjs';
 import { runConfig } from './commands/config.mjs';
+import { runMetadata } from './commands/metadata.mjs';
+import { runResolve } from './commands/resolve.mjs';
 
 const HELP = `
 confluence - Multi-host Confluence REST API CLI
@@ -25,6 +27,8 @@ COMMANDS:
   read <url|id>       Read page content (supports URLs and page IDs)
   write <url|id>      Update page content (with diff and confirmation)
   user <userkey>      Resolve userkey to username
+  metadata <url|id>   Read page metadata (no document body)
+  resolve <url|id>    Convert between permalink and GUID URLs
   visit <url|id>      Open page in browser
   config              Manage hosts and configuration
 
@@ -66,6 +70,12 @@ async function main() {
         break;
       case 'user':
         await runUser(commandArgs);
+        break;
+      case 'metadata':
+        await runMetadata(commandArgs);
+        break;
+      case 'resolve':
+        await runResolve(commandArgs);
         break;
       case 'visit':
         await runVisit(commandArgs);

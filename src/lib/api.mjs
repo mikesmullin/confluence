@@ -81,6 +81,13 @@ export async function getPageById(host, pageId) {
 }
 
 /**
+ * Get page metadata by ID (no body content)
+ */
+export async function getPageMetadataById(host, pageId) {
+  return get(host, `/content/${pageId}?expand=version,space,ancestors`);
+}
+
+/**
  * Get page by space key and title
  */
 export async function getPageByTitle(host, spaceKey, title) {
@@ -91,6 +98,23 @@ export async function getPageByTitle(host, spaceKey, title) {
   });
   const response = await get(host, `/content?${params}`);
   
+  if (response.results && response.results.length > 0) {
+    return response.results[0];
+  }
+  throw new Error(`Page not found: ${spaceKey}/${title}`);
+}
+
+/**
+ * Get page metadata by space key and title (no body content)
+ */
+export async function getPageMetadataByTitle(host, spaceKey, title) {
+  const params = new URLSearchParams({
+    spaceKey,
+    title,
+    expand: 'version,space,ancestors',
+  });
+  const response = await get(host, `/content?${params}`);
+
   if (response.results && response.results.length > 0) {
     return response.results[0];
   }
@@ -115,6 +139,26 @@ export async function updatePage(host, pageId, title, spaceKey, content, current
     version: { number: currentVersion + 1 },
   };
   return put(host, `/content/${pageId}`, body);
+}
+
+/**
+ * Create a new page under a parent page
+ */
+export async function createPage(host, title, spaceKey, content, parentId) {
+  const body = {
+    type: 'page',
+    title,
+    space: { key: spaceKey },
+    ancestors: [{ id: String(parentId) }],
+    body: {
+      storage: {
+        value: content,
+        representation: 'storage',
+      },
+    },
+  };
+
+  return post(host, '/content', body);
 }
 
 /**
@@ -221,4 +265,28 @@ export function parsePageUrl(url) {
     }
     throw error;
   }
+}
+
+/**
+ * Get canonical URLs for a page in both permalink and GUID form
+ */
+export function getPageUrls(host, page) {
+  const base = page?._links?.base || host.url;
+  const webui = page?._links?.webui;
+  const guid = `${base}/pages/viewpage.action?pageId=${page.id}`;
+
+  let permalinkPath = '';
+  if (webui && webui.startsWith('/display/')) {
+    permalinkPath = webui;
+  } else {
+    const encodedSpace = encodeURIComponent(page.space?.key || '');
+    const encodedTitle = encodeURIComponent(page.title || '').replace(/%20/g, '+');
+    permalinkPath = `/display/${encodedSpace}/${encodedTitle}`;
+  }
+
+  return {
+    permalink: `${base}${permalinkPath}`,
+    guid,
+    webui: webui ? `${base}${webui}` : guid,
+  };
 }

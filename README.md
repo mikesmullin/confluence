@@ -30,44 +30,12 @@ vim .tokens.yaml      # Add your PATs
 
 ## Usage
 
-```sh
-confluence --help
-```
+See `SKILL.md` for command usage, command reference, and examples.
 
-### Commands
-
-| Command | Description |
-|---------|-------------|
-| `search` | Search pages with CQL query |
-| `read` | Read page content |
-| `write` | Update page content |
-| `user` | Resolve userkey to username |
-| `visit` | Open page in browser |
-| `config` | Manage hosts and configuration |
-
-### Examples
+To create a new page under a specific parent page, use:
 
 ```sh
-# Search for pages
-confluence search 'type = "page" AND text ~ "kubernetes"'
-
-# Read a page by URL
-confluence read https://confluence.example.com/display/SPACE/PageTitle
-
-# Read a page by ID
-confluence read 12345
-
-# Read a page by space/title
-confluence read --space SRE --title "Runbook Index"
-
-# Update a page
-confluence write 12345 --file content.html
-
-# Resolve a userkey
-confluence user 8a0598da86420168018723648aa80085
-
-# Open page in browser
-confluence visit 12345
+confluence write --create --parent <url|id> --title "New Page" --file content.html
 ```
 
 ## Token Generation
