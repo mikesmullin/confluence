@@ -32,11 +32,11 @@ vim .tokens.yaml      # Add your PATs
 
 See `SKILL.md` for command usage, command reference, and examples.
 
-To create a new page under a specific parent page, use:
+Local store format:
 
-```sh
-confluence write --create --parent <url|id> --title "New Page" --file content.html
-```
+- Directory: `.confluence/`
+- Page files: `.confluence/<id>.md`
+- Sync metadata: YAML front matter in each file
 
 ## Token Generation
 

@@ -7,6 +7,12 @@ config.yaml
 # Tokens (NEVER commit)
 .tokens.yaml
 
+# User local store
+.confluence/
+
+# Tmp
+/tmp/
+
 # macOS
 .DS_Store
 

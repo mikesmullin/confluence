@@ -4,17 +4,14 @@
  * Multi-host Confluence REST API CLI
  */
 
-import { parseArgs } from 'util';
-
 // Command imports
 import { runSearch } from './commands/search.mjs';
-import { runRead } from './commands/read.mjs';
-import { runWrite } from './commands/write.mjs';
-import { runUser } from './commands/user.mjs';
-import { runVisit } from './commands/visit.mjs';
-import { runConfig } from './commands/config.mjs';
-import { runMetadata } from './commands/metadata.mjs';
+import { runPull } from './commands/pull.mjs';
+import { runPush } from './commands/push.mjs';
+import { runView } from './commands/view.mjs';
+import { runPeek } from './commands/peek.mjs';
 import { runResolve } from './commands/resolve.mjs';
+import { runUser } from './commands/user.mjs';
 
 const HELP = `
 confluence - Multi-host Confluence REST API CLI
@@ -23,14 +20,13 @@ USAGE:
   confluence <command> [options]
 
 COMMANDS:
+  pull [url|id]       Pull page(s) into local .confluence store
+  push                Push local pending changes to Confluence
   search <cql>        Search pages with CQL query
-  read <url|id>       Read page content (supports URLs and page IDs)
-  write <url|id>      Update page content (with diff and confirmation)
-  user <userkey>      Resolve userkey to username
-  metadata <url|id>   Read page metadata (no document body)
+  peek <url|id>       Read remote page body (no local storage changes)
+  view <url|id>       View local markdown content (offline)
   resolve <url|id>    Convert between permalink and GUID URLs
-  visit <url|id>      Open page in browser
-  config              Manage hosts and configuration
+  user <userkey>      Resolve userkey to username
 
 OPTIONS:
   -h, --help          Show this help message
@@ -59,29 +55,26 @@ async function main() {
 
   try {
     switch (command) {
+      case 'pull':
+        await runPull(commandArgs);
+        break;
+      case 'push':
+        await runPush(commandArgs);
+        break;
       case 'search':
         await runSearch(commandArgs);
         break;
-      case 'read':
-        await runRead(commandArgs);
+      case 'peek':
+        await runPeek(commandArgs);
         break;
-      case 'write':
-        await runWrite(commandArgs);
-        break;
-      case 'user':
-        await runUser(commandArgs);
-        break;
-      case 'metadata':
-        await runMetadata(commandArgs);
+      case 'view':
+        await runView(commandArgs);
         break;
       case 'resolve':
         await runResolve(commandArgs);
         break;
-      case 'visit':
-        await runVisit(commandArgs);
-        break;
-      case 'config':
-        await runConfig(commandArgs);
+      case 'user':
+        await runUser(commandArgs);
         break;
       default:
         console.error(`Unknown command: ${command}`);

@@ -13,6 +13,7 @@
     "link": "bun link"
   },
   "dependencies": {
+    "@xmldom/xmldom": "^0.8.11",
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {},
