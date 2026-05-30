@@ -284,17 +284,9 @@ async function renderTableCell(cell, metadata) {
     }
 
     if (tag === 'ul' || tag === 'ol') {
-      const lines = [];
-      for (const li of getChildNodes(child)) {
-        if (li.nodeType === 1 && (li.localName || li.nodeName) === 'li') {
-          const t = await renderInlineChildren(li, metadata);
-          if (t) {
-            lines.push(t);
-          }
-        }
-      }
-      if (lines.length > 0) {
-        parts.push(lines.join('<br>'));
+      const rendered = await renderTableCellListOpenTags(child, metadata);
+      if (rendered) {
+        parts.push(rendered);
       }
       continue;
     }
@@ -318,6 +310,40 @@ async function renderTableCell(cell, metadata) {
     return '';
   }
   return rendered;
+}
+
+async function renderTableCellListOpenTags(node, metadata) {
+  const tag = (node.localName || node.nodeName).toLowerCase();
+  const parts = [`<${tag}>`];
+  for (const child of getChildNodes(node)) {
+    if (child.nodeType !== 1) {
+      continue;
+    }
+    const childTag = (child.localName || child.nodeName).toLowerCase();
+    if (childTag !== 'li') {
+      continue;
+    }
+    parts.push('<li>');
+    for (const liChild of getChildNodes(child)) {
+      if (liChild.nodeType === 3) {
+        const t = collapseWhitespace(liChild.nodeValue || '');
+        if (t) {
+          parts.push(t);
+        }
+      } else if (liChild.nodeType === 1) {
+        const liChildTag = (liChild.localName || liChild.nodeName).toLowerCase();
+        if (liChildTag === 'ul' || liChildTag === 'ol') {
+          parts.push(await renderTableCellListOpenTags(liChild, metadata));
+        } else {
+          const t = await renderInlineNode(liChild, metadata);
+          if (t) {
+            parts.push(t);
+          }
+        }
+      }
+    }
+  }
+  return parts.join('');
 }
 
 async function renderInlineChildren(node, metadata) {
@@ -721,15 +747,62 @@ function renderTableCellMarkdownToXml(cellText) {
     return '<div class="content-wrapper"><p><br /></p></div>';
   }
 
-  const segments = text.split(/<br\s*\/?\s*>/i).map((s) => s.trim()).filter(Boolean);
+  if (/^<(?:ul|ol|li)[^>]*>/i.test(text)) {
+    return parseUnclosedListToXml(text);
+  }
+
+  const segments = text.split(/<br\s*\/?>\s*/i).map((s) => s.trim()).filter(Boolean);
   if (segments.length <= 1) {
     return renderInlineMarkdownToXml(text);
+  }
+
+  const hasListSegment = segments.some((s) => /^<(?:ul|ol|li)[^>]*>/i.test(s));
+  if (hasListSegment) {
+    const parts = segments.map((segment) => {
+      if (/^<(?:ul|ol|li)[^>]*>/i.test(segment)) {
+        return parseUnclosedListToXml(segment);
+      }
+      return `<p>${renderInlineMarkdownToXml(segment)}</p>`;
+    });
+    return `<div class="content-wrapper">${parts.join('')}</div>`;
   }
 
   const paragraphs = segments
     .map((segment) => `<p>${renderInlineMarkdownToXml(segment)}</p>`)
     .join('');
   return `<div class="content-wrapper">${paragraphs}</div>`;
+}
+
+function parseUnclosedListToXml(text) {
+  const tokens = String(text).split(/(<(?:ul|ol|li)[^>]*>)/i).filter(Boolean);
+  const stack = [];
+  let result = '';
+
+  for (const token of tokens) {
+    const tagMatch = token.match(/^<(ul|ol|li)([^>]*)>$/i);
+    if (!tagMatch) {
+      result += renderInlineMarkdownToXml(token);
+      continue;
+    }
+    const tag = tagMatch[1].toLowerCase();
+    if (tag === 'ul' || tag === 'ol') {
+      result += `<${tag}>`;
+      stack.push(tag);
+    } else {
+      if (stack.length > 0 && stack[stack.length - 1] === 'li') {
+        result += '</li>';
+        stack.pop();
+      }
+      result += '<li>';
+      stack.push('li');
+    }
+  }
+
+  while (stack.length > 0) {
+    result += `</${stack.pop()}>`;
+  }
+
+  return result;
 }
 
 function renderInlineMarkdownToXml(input) {
