@@ -81,10 +81,17 @@ export function markdownToXml(markdownText) {
 
   const xmlBlocks = extractOpaqueXmlBlocks(body);
   if (xmlBlocks.length > 0) {
-    return {
-      xml: canonicalizeXml(xmlBlocks.join('\n')),
-      frontMatter,
-    };
+    // Only use the opaque-block shortcut when the ENTIRE body is made up of
+    // confluence-xml fenced blocks (no other prose/tables/headings alongside them).
+    // If there is additional content, fall through to markdownToStorageXml so
+    // the other content is not silently discarded.
+    const bodyWithoutBlocks = body.replace(/^```confluence-xml\n[\s\S]*?\n```\s*$/gm, '').trim();
+    if (!bodyWithoutBlocks) {
+      return {
+        xml: canonicalizeXml(xmlBlocks.join('\n')),
+        frontMatter,
+      };
+    }
   }
 
   const fallbackXml = markdownToStorageXml(body);
@@ -575,6 +582,17 @@ function markdownToStorageXml(markdownBody) {
       if (xml) {
         blocks.push(xml);
         i = nextIndex;
+        continue;
+      }
+    }
+
+    // Pass-through inline confluence-xml fenced blocks as raw XML.
+    if (line === '```confluence-xml') {
+      const endIdx = lines.indexOf('```', i + 1);
+      if (endIdx > i) {
+        const rawXml = lines.slice(i + 1, endIdx).join('\n');
+        blocks.push(rawXml);
+        i = endIdx + 1;
         continue;
       }
     }
