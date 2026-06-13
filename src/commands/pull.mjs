@@ -14,11 +14,13 @@ USAGE:
 OPTIONS:
   --host <name>       Confluence host override (for ID input)
   --force             Overwrite local pending changes (single-target mode only)
+  --out <file>        Write output to a specific file path instead of the store
   -h, --help          Show this help message
 
 BEHAVIOR:
-  confluence pull <url|id>   Pull one page and write .confluence/<id>.md
-  confluence pull            Pull all tracked pages only when safe
+  confluence pull <url|id>            Pull one page and write .confluence/<id>.md
+  confluence pull <url|id> --out <f>  Pull one page and write to <f>
+  confluence pull                     Pull all tracked pages only when safe
 `;
 
 export async function runPull(args) {
@@ -27,6 +29,7 @@ export async function runPull(args) {
     options: {
       host: { type: 'string', short: 'H' },
       force: { type: 'boolean' },
+      out: { type: 'string', short: 'o' },
       help: { type: 'boolean', short: 'h' },
     },
     allowPositionals: true,
@@ -43,6 +46,7 @@ export async function runPull(args) {
       cwd: process.cwd(),
       hostName: values.host,
       force: values.force,
+      outPath: values.out || null,
     });
 
     console.log(`Pulled ${pulled.pageId} (${pulled.title}) -> ${pulled.path}`);

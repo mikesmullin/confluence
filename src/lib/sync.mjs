@@ -13,12 +13,18 @@ import {
 } from './api.mjs';
 import { getDefaultHost, getHostByUrl, getHostConfig } from './config.mjs';
 import { markdownToXml, xmlToMarkdown, canonicalizeXml } from './convert.mjs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
+import { dirname, resolve } from 'path';
 import {
   SCHEMA_VERSION,
   computeSha256,
   listTrackedPageIds,
+  parseMarkdownFile,
   readPageFile,
+  serializeMarkdownFile,
   writePageFile,
+  canonicalizeText,
+  canonicalizeMarkdown,
 } from './store.mjs';
 
 function nowIso() {
@@ -102,11 +108,12 @@ export async function resolvePageReference(ref, options = {}) {
 export async function pullOne(ref, options = {}) {
   const cwd = options.cwd || process.cwd();
   const force = options.force === true;
+  const outPath = options.outPath || null;
   const resolved = await resolvePageReference(ref, options);
   const { host, page, sourceUrl } = resolved;
   const pageId = String(page.id);
 
-  const existing = readPageFile(cwd, pageId);
+  const existing = outPath ? null : readPageFile(cwd, pageId);
   if (existing) {
     const status = localStatusFromFile(existing);
     if (status.pendingPush && !force) {
@@ -136,7 +143,15 @@ export async function pullOne(ref, options = {}) {
     last_push_at: existing?.frontMatter?.last_push_at ?? null,
   });
 
-  const path = writePageFile(cwd, pageId, frontMatter, markdownBody);
+  let path;
+  if (outPath) {
+    mkdirSync(dirname(resolve(outPath)), { recursive: true });
+    const fileText = serializeMarkdownFile(frontMatter, markdownBody);
+    writeFileSync(outPath, fileText, 'utf8');
+    path = outPath;
+  } else {
+    path = writePageFile(cwd, pageId, frontMatter, markdownBody);
+  }
 
   return {
     pageId,
@@ -204,6 +219,79 @@ export async function pullAllTracked(options = {}) {
   }
 
   return result;
+}
+
+/**
+ * Push a single markdown file from an arbitrary path to Confluence.
+ * The file must contain valid confluence-offline front matter (page_id, host, etc.).
+ */
+export async function pushFile(filePath, options = {}) {
+  const cwd = options.cwd || process.cwd();
+
+  if (!existsSync(filePath)) {
+    throw new Error(`File not found: ${filePath}`);
+  }
+
+  const text = readFileSync(filePath, 'utf8');
+  const parsed = parseMarkdownFile(text);
+  const frontMatter = parsed.frontMatter;
+  const pageId = String(frontMatter.page_id || '');
+
+  if (!pageId) {
+    throw new Error('Front matter missing required field: page_id');
+  }
+
+  const local = {
+    path: filePath,
+    text: canonicalizeText(text),
+    frontMatter,
+    body: parsed.body,
+  };
+
+  const localStatus = localStatusFromFile(local);
+  const host = getHostConfig(frontMatter.host || undefined);
+  const remote = await getPageById(host, pageId);
+  const remoteVersion = Number(remote.version?.number || 0);
+  const baselineVersion = Number(frontMatter.remote_version_at_pull || 0);
+
+  if (remoteVersion > baselineVersion) {
+    throw new Error(
+      `CONFLICT ${pageId}: local baseline=${baselineVersion}, remote=${remoteVersion}. Pull first.`,
+    );
+  }
+
+  const { xml } = markdownToXml(local.text);
+  const updated = await updatePage(
+    host,
+    pageId,
+    frontMatter.title || remote.title,
+    frontMatter.space_key || remote.space?.key,
+    xml,
+    remoteVersion,
+  );
+
+  const updatedVersion = Number(updated?.version?.number || remoteVersion + 1);
+  const updatedFrontMatter = {
+    ...frontMatter,
+    title: updated?.title || frontMatter.title,
+    space_key: updated?.space?.key || frontMatter.space_key,
+    remote_version_at_pull: updatedVersion,
+    remote_last_modified: updated?.version?.when || nowIso(),
+    remote_sha256_at_pull: computeSha256(canonicalizeXml(xml)),
+    local_md_sha256: localStatus.localHash,
+    dirty: false,
+    pending_push: false,
+    last_push_at: nowIso(),
+  };
+
+  // Write updated front matter back to the source file (not the store)
+  const updatedText = serializeMarkdownFile(updatedFrontMatter, local.body);
+  writeFileSync(filePath, updatedText, 'utf8');
+
+  return {
+    pageId,
+    version: updatedVersion,
+  };
 }
 
 export async function pushPending(options = {}) {
