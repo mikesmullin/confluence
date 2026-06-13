@@ -530,8 +530,7 @@ function escapeXml(text) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/\"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/\"/g, '&quot;');
 }
 
 function markdownParagraphsToStorageXml(markdownBody) {
@@ -586,6 +585,13 @@ function markdownToStorageXml(markdownBody) {
       }
     }
 
+    if (/^>/.test(line.trim())) {
+      const { xml, nextIndex } = parseMarkdownBlockquote(lines, i);
+      blocks.push(xml);
+      i = nextIndex;
+      continue;
+    }
+
     // Pass-through inline confluence-xml fenced blocks as raw XML.
     if (line === '```confluence-xml') {
       const endIdx = lines.indexOf('```', i + 1);
@@ -604,7 +610,7 @@ function markdownToStorageXml(markdownBody) {
       continue;
     }
 
-    if (/^[-*]\s+/.test(line) || /^\d+\.\s+/.test(line)) {
+    if (/^\s*[-*]\s+/.test(line) || /^\s*\d+\.\s+/.test(line)) {
       const { xml, nextIndex } = parseMarkdownList(lines, i);
       blocks.push(xml);
       i = nextIndex;
@@ -682,6 +688,23 @@ function parseMarkdownAdmonition(lines, startIndex) {
   return { xml, nextIndex: i };
 }
 
+function parseMarkdownBlockquote(lines, startIndex) {
+  const bodyLines = [];
+  let i = startIndex;
+  while (i < lines.length) {
+    const current = (lines[i] || '').trimEnd();
+    const quoted = current.match(/^>\s?(.*)$/);
+    if (!quoted) break;
+    bodyLines.push(quoted[1]);
+    i += 1;
+  }
+  const content = bodyLines.join(' ').trim();
+  return {
+    xml: `<blockquote><p>${renderInlineMarkdownToXml(content)}</p></blockquote>`,
+    nextIndex: i,
+  };
+}
+
 function renderAdmonitionBodyToXml(lines) {
   const filtered = lines.map((line) => line.trim()).filter(Boolean);
   if (filtered.length === 0) {
@@ -691,29 +714,59 @@ function renderAdmonitionBodyToXml(lines) {
 }
 
 function parseMarkdownList(lines, startIndex) {
-  const listItems = [];
   let i = startIndex;
-  const ordered = /^\d+\.\s+/.test((lines[startIndex] || '').trim());
-  const markerRe = ordered ? /^\d+\.\s+/ : /^[-*]\s+/;
+  const listLines = [];
 
   while (i < lines.length) {
     const line = (lines[i] || '').trimEnd();
-    if (!line.trim()) {
-      break;
-    }
-    if (!markerRe.test(line.trim())) {
-      break;
-    }
-    const itemText = line.trim().replace(markerRe, '');
-    listItems.push(`<li>${renderInlineMarkdownToXml(itemText)}</li>`);
+    if (!line.trim()) break;
+    if (!/^\s*([-*]|\d+\.)\s+/.test(line)) break;
+    listLines.push(line);
     i += 1;
   }
 
-  const tag = ordered ? 'ol' : 'ul';
   return {
-    xml: `<${tag}>${listItems.join('')}</${tag}>`,
+    xml: buildNestedListXml(listLines),
     nextIndex: i,
   };
+}
+
+function buildNestedListXml(lines) {
+  if (lines.length === 0) return '';
+
+  const baseIndent = (lines[0].match(/^(\s*)/) || ['', ''])[1].length;
+  const isOrdered = /^\s*\d+\.\s+/.test(lines[0]);
+  const tag = isOrdered ? 'ol' : 'ul';
+  const items = [];
+  let j = 0;
+
+  while (j < lines.length) {
+    const line = lines[j];
+    const indent = (line.match(/^(\s*)/) || ['', ''])[1].length;
+    if (indent < baseIndent) break;
+    if (indent > baseIndent) {
+      // orphaned deeper line — skip (shouldn't happen in well-formed input)
+      j += 1;
+      continue;
+    }
+
+    const itemText = line.replace(/^\s*([-*]|\d+\.)\s+/, '');
+    j += 1;
+
+    // Collect child lines (indented deeper than current level)
+    const childLines = [];
+    while (j < lines.length) {
+      const childIndent = ((lines[j] || '').match(/^(\s*)/) || ['', ''])[1].length;
+      if (childIndent <= baseIndent) break;
+      childLines.push(lines[j]);
+      j += 1;
+    }
+
+    const nestedXml = childLines.length > 0 ? buildNestedListXml(childLines) : '';
+    items.push(`<li>${renderInlineMarkdownToXml(itemText)}${nestedXml}</li>`);
+  }
+
+  return `<${tag}>${items.join('')}</${tag}>`;
 }
 
 function parseMarkdownTable(lines, startIndex) {
@@ -828,8 +881,9 @@ function renderInlineMarkdownToXml(input) {
   text = text.replace(/<br\s*\/?\s*>/gi, '[[BR]]');
 
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => markdownLinkToXml(label, href));
-  text = text.replace(/\*\*([^*]+)\*\*/g, (_, inner) => `<strong>${escapeXml(inner)}</strong>`);
-  text = text.replace(/\*([^*]+)\*/g, (_, inner) => `<em>${escapeXml(inner)}</em>`);
+  text = text.replace(/~~([^~]+)~~/g, (_, inner) => `<s>${renderInlineMarkdownToXml(inner)}</s>`);
+  text = text.replace(/\*\*([^*]+)\*\*/g, (_, inner) => `<strong>${renderInlineMarkdownToXml(inner)}</strong>`);
+  text = text.replace(/\*([^*]+)\*/g, (_, inner) => `<em>${renderInlineMarkdownToXml(inner)}</em>`);
   text = text.replace(/`([^`]+)`/g, (_, inner) => `<code>${escapeXml(inner)}</code>`);
 
   // Escape any remaining raw text, but preserve XML tags already injected above.
