@@ -482,6 +482,20 @@ function findFirstElement(node, localName, prefix) {
   return null;
 }
 
+function getMacroParameter(node, name) {
+  for (const child of getChildNodes(node)) {
+    if (child.nodeType !== 1) {
+      continue;
+    }
+    const localName = child.localName || child.nodeName;
+    const prefix = child.prefix || '';
+    if (prefix === 'ac' && localName === 'parameter' && child.getAttribute('ac:name') === name) {
+      return decodeCdataText(child.textContent || '');
+    }
+  }
+  return null;
+}
+
 function findChildElementsDeep(node, localName) {
   const found = [];
   const walk = (current) => {
@@ -598,6 +612,26 @@ function markdownToStorageXml(markdownBody) {
       if (endIdx > i) {
         const rawXml = lines.slice(i + 1, endIdx).join('\n');
         blocks.push(rawXml);
+        i = endIdx + 1;
+        continue;
+      }
+    }
+
+    // Generic fenced code block -> Confluence code macro.
+    const fence = line.trim().match(/^```+\s*([\w-]+)?\s*$/);
+    if (fence) {
+      const lang = (fence[1] || '').toLowerCase();
+      const endIdx = lines.indexOf('```', i + 1);
+      if (endIdx > i) {
+        const code = lines.slice(i + 1, endIdx).join('\n');
+        const langParam = lang
+          ? `<ac:parameter ac:name="language">${escapeXml(lang)}</ac:parameter>`
+          : '';
+        blocks.push(
+          `<ac:structured-macro ac:name="code" ac:schema-version="1">${langParam}` +
+            `<ac:plain-text-body><![CDATA[${code}]]></ac:plain-text-body>` +
+            `</ac:structured-macro>`,
+        );
         i = endIdx + 1;
         continue;
       }
@@ -880,20 +914,37 @@ function renderInlineMarkdownToXml(input) {
   let text = String(input || '');
   text = text.replace(/<br\s*\/?\s*>/gi, '[[BR]]');
 
+  // Tokenize inline code first so its content is escaped exactly once and the
+  // later loose-text escaping pass cannot double-escape it.
+  const codeTokens = [];
+  text = text.replace(/`([^`]+)`/g, (_, inner) => {
+    const idx = codeTokens.length;
+    codeTokens.push(`<code>${escapeXml(inner)}</code>`);
+    return `\u0000CODE${idx}\u0000`;
+  });
+
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => markdownLinkToXml(label, href));
   text = text.replace(/~~([^~]+)~~/g, (_, inner) => `<s>${renderInlineMarkdownToXml(inner)}</s>`);
   text = text.replace(/\*\*([^*]+)\*\*/g, (_, inner) => `<strong>${renderInlineMarkdownToXml(inner)}</strong>`);
   text = text.replace(/\*([^*]+)\*/g, (_, inner) => `<em>${renderInlineMarkdownToXml(inner)}</em>`);
-  text = text.replace(/`([^`]+)`/g, (_, inner) => `<code>${escapeXml(inner)}</code>`);
 
   // Escape any remaining raw text, but preserve XML tags already injected above.
   text = escapeLooseTextWithTags(text);
+  text = text.replace(/\u0000CODE(\d+)\u0000/g, (_, n) => codeTokens[Number(n)]);
   text = text.replace(/\[\[BR\]\]/g, '<br />');
   return text;
 }
 
 async function renderStructuredMacro(node, metadata) {
   const macroName = (node.getAttribute('ac:name') || '').toLowerCase();
+
+  if (macroName === 'code') {
+    const lang = (getMacroParameter(node, 'language') || '').trim();
+    const plainBody = findFirstElement(node, 'plain-text-body', 'ac');
+    const code = plainBody ? decodeCdataText(plainBody.textContent || '') : '';
+    return `\`\`\`${lang}\n${code}\n\`\`\``;
+  }
+
   const admonitionType = MACRO_TO_ADMONITION[macroName] || null;
   if (!admonitionType) {
     return '';
