@@ -2,6 +2,8 @@
 
 Use this tool to pull, push, search, peek, view, resolve, and inspect Confluence content across configured hosts.
 
+**CQL syntax:** The recommended default query is `text ~ "your search term"`. The `text` field is the broad search field: it searches indexed page text such as the title, body/content, labels, and sometimes other indexed fields. Use quotes around search phrases or values containing spaces. Add other CQL clauses only when needed, such as `AND type = page`, `AND space = EXAMPLE`, or `ORDER BY lastmodified DESC`; these additional clauses are all optional. Use CQL with `confluence search <cql>`; the other subcommands take page IDs, URLs, files, or options rather than CQL. CQL fields and supported operators are Confluence-specific.
+
 ## Command
 
 ```sh
