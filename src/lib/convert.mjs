@@ -208,10 +208,23 @@ async function renderList(node, metadata, depth = 0) {
       continue;
     }
 
-    const content = await renderInlineChildren(child, metadata);
+    const directChildren = [];
+    const nestedLists = [];
+    for (const listItemChild of getChildNodes(child)) {
+      const tag = listItemChild.localName || listItemChild.nodeName;
+      if (listItemChild.nodeType === 1 && (tag === 'ul' || tag === 'ol')) {
+        nestedLists.push(listItemChild);
+      } else {
+        directChildren.push(listItemChild);
+      }
+    }
+
+    const content = await renderInlineNodes(directChildren, metadata);
     const marker = isOrdered ? `${index}.` : '-';
     const indent = '  '.repeat(depth);
-    items.push(`${indent}${marker} ${content}`.trimEnd());
+    const item = `${indent}${marker}${content ? ` ${content}` : ''}`.trimEnd();
+    const nested = await Promise.all(nestedLists.map((list) => renderList(list, metadata, depth + 1)));
+    items.push([item, ...nested.filter(Boolean)].join('\n'));
     index += 1;
   }
 
@@ -354,14 +367,18 @@ async function renderTableCellListOpenTags(node, metadata) {
 }
 
 async function renderInlineChildren(node, metadata) {
+  return renderInlineNodes(getChildNodes(node), metadata);
+}
+
+async function renderInlineNodes(nodes, metadata) {
   const parts = [];
-  for (const child of getChildNodes(node)) {
+  for (const child of nodes) {
     const text = await renderInlineNode(child, metadata);
     if (text) {
       parts.push(text);
     }
   }
-  let out = collapseWhitespace(parts.join('')).replace(/\s*<br>\s*/g, '<br>').trim();
+  let out = normalizeText(parts.join('')).replace(/[ \t\n\r]+/g, ' ').replace(/\s*<br>\s*/g, '<br>');
 
   // Keep markdown emphasis tokens readable when adjacent nodes had no literal separator.
   out = out.replace(/(\*\*[^*]+\*\*)(?=\[|[A-Za-z0-9])/g, '$1 ');
@@ -482,20 +499,6 @@ function findFirstElement(node, localName, prefix) {
   return null;
 }
 
-function getMacroParameter(node, name) {
-  for (const child of getChildNodes(node)) {
-    if (child.nodeType !== 1) {
-      continue;
-    }
-    const localName = child.localName || child.nodeName;
-    const prefix = child.prefix || '';
-    if (prefix === 'ac' && localName === 'parameter' && child.getAttribute('ac:name') === name) {
-      return decodeCdataText(child.textContent || '');
-    }
-  }
-  return null;
-}
-
 function findChildElementsDeep(node, localName) {
   const found = [];
   const walk = (current) => {
@@ -541,7 +544,7 @@ function getChildNodes(node) {
 
 function escapeXml(text) {
   return String(text)
-    .replace(/&/g, '&amp;')
+    .replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[\da-fA-F]+);)/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/\"/g, '&quot;');
@@ -612,26 +615,6 @@ function markdownToStorageXml(markdownBody) {
       if (endIdx > i) {
         const rawXml = lines.slice(i + 1, endIdx).join('\n');
         blocks.push(rawXml);
-        i = endIdx + 1;
-        continue;
-      }
-    }
-
-    // Generic fenced code block -> Confluence code macro.
-    const fence = line.trim().match(/^```+\s*([\w-]+)?\s*$/);
-    if (fence) {
-      const lang = (fence[1] || '').toLowerCase();
-      const endIdx = lines.indexOf('```', i + 1);
-      if (endIdx > i) {
-        const code = lines.slice(i + 1, endIdx).join('\n');
-        const langParam = lang
-          ? `<ac:parameter ac:name="language">${escapeXml(lang)}</ac:parameter>`
-          : '';
-        blocks.push(
-          `<ac:structured-macro ac:name="code" ac:schema-version="1">${langParam}` +
-            `<ac:plain-text-body><![CDATA[${code}]]></ac:plain-text-body>` +
-            `</ac:structured-macro>`,
-        );
         i = endIdx + 1;
         continue;
       }
@@ -914,37 +897,20 @@ function renderInlineMarkdownToXml(input) {
   let text = String(input || '');
   text = text.replace(/<br\s*\/?\s*>/gi, '[[BR]]');
 
-  // Tokenize inline code first so its content is escaped exactly once and the
-  // later loose-text escaping pass cannot double-escape it.
-  const codeTokens = [];
-  text = text.replace(/`([^`]+)`/g, (_, inner) => {
-    const idx = codeTokens.length;
-    codeTokens.push(`<code>${escapeXml(inner)}</code>`);
-    return `\u0000CODE${idx}\u0000`;
-  });
-
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => markdownLinkToXml(label, href));
   text = text.replace(/~~([^~]+)~~/g, (_, inner) => `<s>${renderInlineMarkdownToXml(inner)}</s>`);
   text = text.replace(/\*\*([^*]+)\*\*/g, (_, inner) => `<strong>${renderInlineMarkdownToXml(inner)}</strong>`);
   text = text.replace(/\*([^*]+)\*/g, (_, inner) => `<em>${renderInlineMarkdownToXml(inner)}</em>`);
+  text = text.replace(/`([^`]+)`/g, (_, inner) => `<code>${escapeXml(inner)}</code>`);
 
   // Escape any remaining raw text, but preserve XML tags already injected above.
   text = escapeLooseTextWithTags(text);
-  text = text.replace(/\u0000CODE(\d+)\u0000/g, (_, n) => codeTokens[Number(n)]);
   text = text.replace(/\[\[BR\]\]/g, '<br />');
   return text;
 }
 
 async function renderStructuredMacro(node, metadata) {
   const macroName = (node.getAttribute('ac:name') || '').toLowerCase();
-
-  if (macroName === 'code') {
-    const lang = (getMacroParameter(node, 'language') || '').trim();
-    const plainBody = findFirstElement(node, 'plain-text-body', 'ac');
-    const code = plainBody ? decodeCdataText(plainBody.textContent || '') : '';
-    return `\`\`\`${lang}\n${code}\n\`\`\``;
-  }
-
   const admonitionType = MACRO_TO_ADMONITION[macroName] || null;
   if (!admonitionType) {
     return '';
